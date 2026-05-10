@@ -17,7 +17,7 @@ import AdminChatInbox from "@/components/admin/AdminChatInbox";
 import { getAdminPhotoStoragePath } from "@/lib/adminProfileShared";
 import { auth, storage } from "@/lib/firebaseClient";
 import { SCHEDULE_SLOTS, formatBRL, SERVICES, type ServiceId } from "@/lib/catalog";
-import { formatCouponValue, normalizeCouponCode, type CouponKind, type DiscountCoupon } from "@/lib/coupons";
+import { formatCouponValue, normalizeCouponCode, sortDiscountCoupons, type CouponKind, type DiscountCoupon } from "@/lib/coupons";
 import { formatDateBR, formatDateTimeBR, getBusinessTodayISO } from "@/lib/date";
 import { getEquipmentLabel, type EquipmentType } from "@/lib/deviceProfile";
 import {
@@ -375,6 +375,7 @@ export default function AdminDashboard() {
   const [coupons, setCoupons] = useState<DiscountCoupon[]>([]);
   const [couponDraft, setCouponDraft] = useState<CouponDraft>(DEFAULT_COUPON_DRAFT);
   const [savingCoupon, setSavingCoupon] = useState(false);
+  const [editingCouponCode, setEditingCouponCode] = useState("");
 
   const selectedCalendarDay = useMemo(
     () => calendarDays.find((day) => day.date === calendarDate) || null,
@@ -399,6 +400,7 @@ export default function AdminDashboard() {
         setProfilePhotoUrl("");
         setCoupons([]);
         setCouponDraft(DEFAULT_COUPON_DRAFT);
+        setEditingCouponCode("");
       }
     });
   }, []);
@@ -913,6 +915,110 @@ export default function AdminDashboard() {
     }
   }
 
+  function resetCouponForm() {
+    setCouponDraft({ ...DEFAULT_COUPON_DRAFT });
+    setEditingCouponCode("");
+  }
+
+  function loadCouponIntoForm(coupon: DiscountCoupon) {
+    setCouponDraft({
+      code: coupon.code,
+      label: coupon.label,
+      description: coupon.description,
+      kind: coupon.kind,
+      value: String(coupon.value),
+      minimumSubtotal: String(coupon.minimumSubtotal),
+      active: coupon.active
+    });
+    setEditingCouponCode(coupon.code);
+    setError("");
+    setMessage("");
+  }
+
+  async function saveCoupon() {
+    setSavingCoupon(true);
+    setError("");
+    setMessage("");
+
+    try {
+      const response = await fetch("/api/admin/coupons", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(await authHeader())
+        },
+        body: JSON.stringify({
+          code: normalizeCouponCode(couponDraft.code),
+          label: couponDraft.label,
+          description: couponDraft.description,
+          kind: couponDraft.kind,
+          value: parseCurrencyInput(couponDraft.value),
+          minimumSubtotal: parseCurrencyInput(couponDraft.minimumSubtotal),
+          active: couponDraft.active
+        })
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Nao foi possivel salvar o cupom.");
+      }
+
+      const savedCoupon = data.coupon as DiscountCoupon;
+
+      setCoupons((current) => sortDiscountCoupons([...current.filter((coupon) => coupon.code !== savedCoupon.code), savedCoupon]));
+      resetCouponForm();
+      setMessage(editingCouponCode === savedCoupon.code ? `Cupom ${savedCoupon.code} atualizado.` : `Cupom ${savedCoupon.code} salvo.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao salvar o cupom.");
+    } finally {
+      setSavingCoupon(false);
+    }
+  }
+
+  async function toggleCouponActive(coupon: DiscountCoupon) {
+    setSavingCoupon(true);
+    setError("");
+    setMessage("");
+
+    try {
+      const response = await fetch("/api/admin/coupons", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(await authHeader())
+        },
+        body: JSON.stringify({
+          code: coupon.code,
+          active: !coupon.active
+        })
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Nao foi possivel atualizar o cupom.");
+      }
+
+      const updatedCoupon = data.coupon as DiscountCoupon;
+
+      setCoupons((current) =>
+        sortDiscountCoupons(current.map((item) => (item.code === updatedCoupon.code ? updatedCoupon : item)))
+      );
+      setCouponDraft((current) =>
+        editingCouponCode === updatedCoupon.code
+          ? {
+              ...current,
+              active: updatedCoupon.active
+            }
+          : current
+      );
+      setMessage(`Cupom ${updatedCoupon.code} ${updatedCoupon.active ? "ativado" : "desativado"}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao atualizar o cupom.");
+    } finally {
+      setSavingCoupon(false);
+    }
+  }
+
   async function deleteOrder(order: OrderRecord) {
     const shouldDelete = window.confirm(
       `Apagar a ordem ${order.orderCode} de ${order.customer.name}? O horário ${order.schedule.slot} em ${formatDateBR(order.schedule.date)} será liberado novamente.`
@@ -1190,6 +1296,11 @@ export default function AdminDashboard() {
 
     return Array.from(groups.entries()).sort((left, right) => left[0].localeCompare(right[0]));
   }, [filteredOrders]);
+
+  const couponDraftValue = Math.max(0, parseCurrencyInput(couponDraft.value));
+  const couponDraftMinimumSubtotal = Math.max(0, parseCurrencyInput(couponDraft.minimumSubtotal));
+  const couponPreviewLabel = couponDraft.label.trim() || formatCouponValue({ kind: couponDraft.kind, value: couponDraftValue });
+  const activeCouponsCount = coupons.filter((coupon) => coupon.active).length;
 
   return (
     <section className="admin-shell">
@@ -1530,6 +1641,217 @@ export default function AdminDashboard() {
                     <div className={`calendar-slot-item ${slot.available ? "free" : slot.orderCode ? "busy" : "blocked"}`} key={slot.slot}>
                       <strong>{slot.slot}</strong>
                       <span>{slot.orderCode ? slot.orderCode : slot.available ? "Livre" : "Indisponível"}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="card admin-coupon-shell">
+            <div className="section-head admin-inline-head">
+              <div>
+                <div className="badge">Cupons</div>
+                <h2>Criar e gerenciar descontos</h2>
+                <p>Os cupons salvos aqui aparecem automaticamente no site e entram na validacao do pedido.</p>
+              </div>
+            </div>
+
+            <div className="admin-multi-grid">
+              <div className="coupon-editor-card">
+                <div className="detail-grid compact">
+                  <div>
+                    <span className="detail-label">Cupons cadastrados</span>
+                    <strong>{coupons.length}</strong>
+                  </div>
+                  <div>
+                    <span className="detail-label">Ativos no site</span>
+                    <strong>{activeCouponsCount}</strong>
+                  </div>
+                </div>
+
+                <div className="note-box coupon-preview-card">
+                  <span className="detail-label">Resumo do cupom</span>
+                  <strong>{couponPreviewLabel}</strong>
+                  <p>
+                    Codigo: {normalizeCouponCode(couponDraft.code) || "PENDENTE"} | Minimo: {formatBRL(couponDraftMinimumSubtotal)} | Status:{" "}
+                    {couponDraft.active ? "ativo" : "inativo"}
+                  </p>
+                </div>
+
+                <div className="detail-grid">
+                  <label>
+                    <span>Codigo</span>
+                    <input
+                      value={couponDraft.code}
+                      onChange={(event) =>
+                        setCouponDraft((current) => ({
+                          ...current,
+                          code: normalizeCouponCode(event.target.value)
+                        }))
+                      }
+                      placeholder="BEMVINDO10"
+                    />
+                  </label>
+
+                  <label>
+                    <span>Tipo</span>
+                    <select
+                      value={couponDraft.kind}
+                      onChange={(event) =>
+                        setCouponDraft((current) => ({
+                          ...current,
+                          kind: event.target.value === "fixed" ? "fixed" : "percentage"
+                        }))
+                      }
+                    >
+                      <option value="percentage">Porcentagem</option>
+                      <option value="fixed">Valor fixo</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    <span>Valor do desconto</span>
+                    <input
+                      value={couponDraft.value}
+                      onChange={(event) =>
+                        setCouponDraft((current) => ({
+                          ...current,
+                          value: event.target.value
+                        }))
+                      }
+                      placeholder={couponDraft.kind === "percentage" ? "10" : "25"}
+                    />
+                  </label>
+
+                  <label>
+                    <span>Pedido minimo</span>
+                    <input
+                      value={couponDraft.minimumSubtotal}
+                      onChange={(event) =>
+                        setCouponDraft((current) => ({
+                          ...current,
+                          minimumSubtotal: event.target.value
+                        }))
+                      }
+                      placeholder="0"
+                    />
+                  </label>
+                </div>
+
+                <label>
+                  <span>Titulo exibido</span>
+                  <input
+                    value={couponDraft.label}
+                    onChange={(event) =>
+                      setCouponDraft((current) => ({
+                        ...current,
+                        label: event.target.value
+                      }))
+                    }
+                    placeholder="Ex.: 10% OFF"
+                  />
+                </label>
+
+                <label>
+                  <span>Descricao</span>
+                  <input
+                    value={couponDraft.description}
+                    onChange={(event) =>
+                      setCouponDraft((current) => ({
+                        ...current,
+                        description: event.target.value
+                      }))
+                    }
+                    placeholder="Ex.: desconto para primeira visita"
+                  />
+                </label>
+
+                <label className="checkbox-line">
+                  <input
+                    type="checkbox"
+                    checked={couponDraft.active}
+                    onChange={(event) =>
+                      setCouponDraft((current) => ({
+                        ...current,
+                        active: event.target.checked
+                      }))
+                    }
+                  />
+                  <span>Deixar ativo assim que salvar</span>
+                </label>
+
+                <p className="mini">Salvar com o mesmo codigo atualiza o cupom. Se trocar o codigo, um novo cupom sera criado.</p>
+
+                <div className="actions">
+                  <button
+                    className="btn btn-primary btn-small"
+                    type="button"
+                    onClick={saveCoupon}
+                    disabled={savingCoupon || working}
+                  >
+                    {savingCoupon ? "Salvando..." : editingCouponCode ? "Atualizar cupom" : "Criar cupom"}
+                  </button>
+                  <button className="btn btn-ghost btn-small" type="button" onClick={resetCouponForm} disabled={savingCoupon || working}>
+                    Limpar formulario
+                  </button>
+                </div>
+              </div>
+
+              <div className="coupon-editor-card">
+                <div className="copy-panel-head">
+                  <div>
+                    <span className="detail-label">Lista atual</span>
+                    <strong>Cupons do painel</strong>
+                  </div>
+                </div>
+
+                {!coupons.length && <p className="coupon-list-empty">Nenhum cupom cadastrado ainda.</p>}
+
+                <div className="history-list">
+                  {coupons.map((coupon) => (
+                    <div className="history-item coupon-list-item" key={coupon.code}>
+                      <div className="coupon-item-head">
+                        <div className="coupon-item-title">
+                          <strong>{coupon.code}</strong>
+                          <p className="mini">{coupon.label || formatCouponValue(coupon)}</p>
+                        </div>
+                        <span className={`status-pill ${coupon.active ? "coupon-status-active" : "coupon-status-inactive"}`}>
+                          {coupon.active ? "Ativo" : "Inativo"}
+                        </span>
+                      </div>
+
+                      <p className="coupon-item-description">{coupon.description}</p>
+
+                      <div className="detail-grid compact coupon-item-meta">
+                        <div>
+                          <span className="detail-label">Desconto</span>
+                          <strong>{formatCouponValue(coupon)}</strong>
+                        </div>
+                        <div>
+                          <span className="detail-label">Pedido minimo</span>
+                          <strong>{formatBRL(coupon.minimumSubtotal)}</strong>
+                        </div>
+                      </div>
+
+                      <div className="actions coupon-item-actions">
+                        <button
+                          className="btn btn-ghost btn-small"
+                          type="button"
+                          onClick={() => loadCouponIntoForm(coupon)}
+                          disabled={savingCoupon || working}
+                        >
+                          Editar
+                        </button>
+                        <button
+                          className="btn btn-ghost btn-small"
+                          type="button"
+                          onClick={() => toggleCouponActive(coupon)}
+                          disabled={savingCoupon || working}
+                        >
+                          {coupon.active ? "Desativar" : "Ativar"}
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>

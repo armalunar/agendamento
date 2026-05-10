@@ -1315,9 +1315,58 @@ html[data-theme="dark"] select option {
 }
 
 .admin-calendar-shell,
+.admin-coupon-shell,
 .admin-audit-card,
 .order-group-card {
   gap: 18px;
+}
+
+.coupon-editor-card {
+  display: grid;
+  gap: 14px;
+}
+
+.coupon-preview-card {
+  padding: 16px 18px;
+}
+
+.coupon-preview-card strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.coupon-list-empty {
+  margin: 0;
+  color: var(--muted);
+}
+
+.coupon-list-item {
+  display: grid;
+  gap: 12px;
+}
+
+.coupon-item-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.coupon-item-title p,
+.coupon-item-description {
+  margin: 6px 0 0;
+}
+
+.coupon-item-meta {
+  gap: 12px;
+}
+
+.coupon-status-active {
+  color: var(--success);
+}
+
+.coupon-status-inactive {
+  color: var(--muted);
 }
 
 .calendar-day-strip {
@@ -2819,6 +2868,7 @@ html[data-theme="dark"] select option {
   .order-top-actions,
   .order-summary-side,
   .order-detail-actions,
+  .coupon-item-head,
   .copy-field-head,
   .copy-panel-head,
   .order-group-head,
