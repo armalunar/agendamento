@@ -26,7 +26,8 @@ export async function PATCH(request: NextRequest) {
     await saveAdminProfile(decoded.uid, {
       email: decoded.email || "",
       displayName: typeof body.displayName === "string" ? body.displayName : undefined,
-      photoDataUrl: typeof body.photoDataUrl === "string" ? body.photoDataUrl : undefined
+      photoDataUrl: typeof body.photoDataUrl === "string" ? body.photoDataUrl : undefined,
+      photoUrl: typeof body.photoUrl === "string" ? body.photoUrl : undefined
     });
 
     const profile = await getAdminProfile(decoded.uid, decoded.name || "", decoded.email || "");
@@ -34,7 +35,7 @@ export async function PATCH(request: NextRequest) {
     await recordAdminAudit(
       "admin-profile-updated",
       "Perfil do administrador atualizado",
-      "Nome de usuário ou foto de perfil ajustados no painel.",
+      "Nome de usuario ou foto de perfil ajustados no painel.",
       actor
     );
 
@@ -43,13 +44,17 @@ export async function PATCH(request: NextRequest) {
     const message = error instanceof Error ? error.message : "";
 
     if (message === "ADMIN_PHOTO_INVALID") {
-      return NextResponse.json({ error: "A foto enviada não está em um formato base64 válido." }, { status: 400, headers: NO_STORE_HEADERS });
+      return NextResponse.json({ error: "A foto enviada nao esta em um formato base64 valido." }, { status: 400, headers: NO_STORE_HEADERS });
     }
 
     if (message === "ADMIN_PHOTO_TOO_LARGE") {
       return NextResponse.json({ error: "A foto base64 ficou grande demais. Tente uma imagem menor." }, { status: 400, headers: NO_STORE_HEADERS });
     }
 
-    return NextResponse.json({ error: "Não foi possível atualizar o perfil do administrador." }, { status: 500, headers: NO_STORE_HEADERS });
+    if (message === "ADMIN_PHOTO_URL_INVALID") {
+      return NextResponse.json({ error: "A URL da foto de perfil nao e valida." }, { status: 400, headers: NO_STORE_HEADERS });
+    }
+
+    return NextResponse.json({ error: "Nao foi possivel atualizar o perfil do administrador." }, { status: 500, headers: NO_STORE_HEADERS });
   }
 }

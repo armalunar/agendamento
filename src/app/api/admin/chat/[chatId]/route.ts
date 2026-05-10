@@ -75,7 +75,7 @@ export async function PATCH(request: NextRequest, context: Params) {
     adminId = decoded.uid;
     const adminProfile = await getAdminProfile(decoded.uid, decoded.name || "", decoded.email || "");
     adminActor = adminProfile.displayName || decoded.name || decoded.email || "Admin";
-    adminPhotoUrl = adminProfile.photoDataUrl || "";
+    adminPhotoUrl = adminProfile.photoUrl || adminProfile.photoDataUrl || "";
     const { chatId } = await context.params;
     const body = await request.json().catch(() => ({}));
     const messageText = cleanChatText(body.message, "", 1200);

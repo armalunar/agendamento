@@ -42,6 +42,7 @@ export async function POST(request: NextRequest) {
         email: userEmail,
         displayName: decoded.name || userEmail,
         photoDataUrl: "",
+        photoUrl: "",
         isAdmin: true,
         updatedAt: FieldValue.serverTimestamp(),
         createdAt: FieldValue.serverTimestamp()

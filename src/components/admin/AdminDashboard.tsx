@@ -14,6 +14,7 @@ import {
 } from "firebase/auth";
 import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import AdminChatInbox from "@/components/admin/AdminChatInbox";
+import { getAdminPhotoStoragePath } from "@/lib/adminProfileShared";
 import { auth, storage } from "@/lib/firebaseClient";
 import { SCHEDULE_SLOTS, formatBRL, SERVICES, type ServiceId } from "@/lib/catalog";
 import { formatCouponValue, normalizeCouponCode, type CouponKind, type DiscountCoupon } from "@/lib/coupons";
@@ -385,7 +386,7 @@ export default function AdminDashboard() {
       setUser(currentUser);
       setProfileName(currentUser?.displayName || "");
       setProfileDisplayName(currentUser?.displayName || "");
-      setProfilePhotoUrl("");
+      setProfilePhotoUrl(currentUser?.photoURL || "");
       setLoading(false);
 
       if (currentUser) {
@@ -540,7 +541,7 @@ export default function AdminDashboard() {
       const nextCalendarDays = (calendarData.days || []) as CalendarDay[];
       const nextAuditEntries = (auditData.entries || []) as AuditEntry[];
       const nextCoupons = (couponsData.coupons || []) as DiscountCoupon[];
-      const profile = (profileData.profile || {}) as { displayName?: string; photoDataUrl?: string };
+      const profile = (profileData.profile || {}) as { displayName?: string; photoDataUrl?: string; photoUrl?: string };
 
       setOrders(nextOrders);
       setCalendarDays(nextCalendarDays);
@@ -548,7 +549,7 @@ export default function AdminDashboard() {
       setCoupons(nextCoupons);
       setProfileName(profile.displayName || currentUser?.displayName || currentUser?.email || "");
       setProfileDisplayName(profile.displayName || currentUser?.displayName || currentUser?.email || "");
-      setProfilePhotoUrl(profile.photoDataUrl || "");
+      setProfilePhotoUrl(profile.photoUrl || profile.photoDataUrl || currentUser?.photoURL || "");
       setAdminReady(true);
       ensureDraftState(nextOrders);
 
@@ -771,12 +772,28 @@ export default function AdminDashboard() {
         cacheControl: "public,max-age=3600"
       });
       const nextPhotoUrl = await getDownloadURL(avatarRef);
+      const headers = await authHeader(currentUser);
+      const response = await fetch("/api/admin/profile", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...headers
+        },
+        body: JSON.stringify({
+          photoUrl: nextPhotoUrl
+        })
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Nao foi possivel salvar a foto de perfil.");
+      }
 
       await updateProfile(currentUser, { photoURL: nextPhotoUrl });
       await currentUser.getIdToken(true);
       await currentUser.reload();
       setUser(auth.currentUser);
-      setProfilePhotoUrl(auth.currentUser?.photoURL || nextPhotoUrl);
+      setProfilePhotoUrl(data.profile?.photoUrl || auth.currentUser?.photoURL || nextPhotoUrl);
       setMessage("Foto de perfil atualizada.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível atualizar a foto de perfil.");
@@ -801,11 +818,28 @@ export default function AdminDashboard() {
         await deleteObject(ref(storage, getAdminPhotoStoragePath(currentUser.uid)));
       } catch {}
 
+      const headers = await authHeader(currentUser);
+      const response = await fetch("/api/admin/profile", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...headers
+        },
+        body: JSON.stringify({
+          photoUrl: ""
+        })
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Nao foi possivel remover a foto de perfil.");
+      }
+
       await updateProfile(currentUser, { photoURL: null });
       await currentUser.getIdToken(true);
       await currentUser.reload();
       setUser(auth.currentUser);
-      setProfilePhotoUrl("");
+      setProfilePhotoUrl(data.profile?.photoUrl || "");
       setMessage("Foto de perfil removida.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível remover a foto de perfil.");
